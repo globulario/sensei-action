@@ -1,5 +1,5 @@
 name: 'Sensei Architectural Review'
-description: "Review pull requests against your repository's architectural memory — invariants, forbidden fixes, contracts, and required tests."
+description: "Review pull requests against your repository's architectural memory — invariants, forbidden fixes, and contracts."
 author: globulario
 branding:
   icon: shield

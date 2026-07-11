@@ -1,4 +1,10 @@
-# Sensei Architectural Review — GitHub Action
+<p align="center">
+  <img src="image/sensei-logo.png" alt="Sensei" width="160">
+</p>
+
+<h1 align="center">Sensei Architectural Review</h1>
+
+<p align="center"><em>Review every pull request against your repository's architectural memory.</em></p>
 
 Review every pull request against your repository's **architectural memory** —
 the invariants, forbidden fixes, contracts, and required tests you keep with

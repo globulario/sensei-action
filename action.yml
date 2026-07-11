@@ -29,7 +29,7 @@ inputs:
   sensei-ref:
     description: Git ref of globulario/sensei to install/build the reviewer from (tag/branch/SHA).
     required: false
-    default: v0.2.2
+    default: v1.0.0
   go-version:
     description: Go toolchain version used for the source-build fallback.
     required: false
@@ -43,40 +43,47 @@ runs:
       with:
         go-version: ${{ inputs.go-version }}
 
-    - name: Install Sensei (prebuilt, or build) + Oxigraph
+    - name: Install Sensei (prebuilt tarball, or build)
       shell: bash
       run: |
         set -euo pipefail
         REF="${{ inputs.sensei-ref }}"
         BIN="$RUNNER_TEMP/sensei-bin"; mkdir -p "$BIN"
-        case "$(uname -m)" in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; *) ARCH=amd64;; esac
+        case "$(uname -s)" in Linux) OS=linux;; Darwin) OS=darwin;; *) OS=linux;; esac
+        case "$(uname -m)" in x86_64|amd64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; *) ARCH=amd64;; esac
+        PLATFORM="${OS}-${ARCH}"
+        REL="https://github.com/globulario/sensei/releases/download/${REF}"
 
-        # Fast path: download prebuilt standalone binaries for this ref (linux-amd64).
+        # Fast path: the self-contained per-platform tarball (bin/ with sensei,
+        # awareness-graph, awareness-mcp, oxigraph, awg + setup.sh). Releases from
+        # v1.0.0 carry linux-amd64, linux-arm64, darwin-arm64.
         got=0
-        if [ "$ARCH" = amd64 ]; then
-          REL="https://github.com/globulario/sensei/releases/download/${REF}"
-          if curl -fsSL -o "$BIN/sensei" "${REL}/sensei-linux-amd64" \
-             && curl -fsSL -o "$BIN/awareness-graph" "${REL}/awareness-graph-linux-amd64"; then
-            chmod +x "$BIN/sensei" "$BIN/awareness-graph"; got=1
-            echo "✓ using prebuilt Sensei binaries (${REF}, linux-amd64)"
-          fi
+        if curl -fsSL -o "$RUNNER_TEMP/sensei.tgz" "${REL}/sensei-${PLATFORM}.tar.gz"; then
+          tar xzf "$RUNNER_TEMP/sensei.tgz" -C "$RUNNER_TEMP"
+          cp "$RUNNER_TEMP/sensei-${PLATFORM}/bin/"* "$BIN/"
+          chmod +x "$BIN/"*; got=1
+          echo "✓ using prebuilt Sensei bundle (${REF}, ${PLATFORM}) — Oxigraph included"
         fi
 
-        # Fallback: build from source (any ref / arch without prebuilt binaries).
+        # Fallback: build from source (any ref / platform without a prebuilt
+        # tarball, e.g. Intel macOS) and fetch Oxigraph from upstream.
         if [ "$got" = 0 ]; then
-          echo "→ no prebuilt binaries for ${REF} (${ARCH}); building from source"
+          echo "→ no prebuilt bundle for ${REF} (${PLATFORM}); building from source"
           command -v go >/dev/null 2>&1 || { echo "::error::Go toolchain unavailable for the source-build fallback"; exit 1; }
           SRC="$RUNNER_TEMP/sensei-src"; rm -rf "$SRC"
           git clone --depth 1 --branch "${REF}" https://github.com/globulario/sensei "$SRC"
           ( cd "$SRC" && go build -o "$BIN/sensei" ./cmd/awg && go build -o "$BIN/awareness-graph" ./golang/server )
+          OXV="v0.5.9"
+          case "${PLATFORM}" in
+            linux-amd64)  OXA="x86_64_linux_gnu";;
+            linux-arm64)  OXA="aarch64_linux_gnu";;
+            darwin-amd64) OXA="x86_64_apple";;
+            darwin-arm64) OXA="aarch64_apple";;
+            *)            OXA="x86_64_linux_gnu";;
+          esac
+          curl -fsSL -o "$BIN/oxigraph" "https://github.com/oxigraph/oxigraph/releases/download/${OXV}/oxigraph_${OXV}_${OXA}"
+          chmod +x "$BIN/oxigraph"
         fi
-
-        # Oxigraph (upstream static binary; no Docker, no cgo).
-        OXV="$(curl -fsSL https://api.github.com/repos/oxigraph/oxigraph/releases/latest | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-        [ -n "${OXV:-}" ] || OXV="v0.5.9"
-        case "$ARCH" in amd64) OXA="x86_64_linux_gnu";; arm64) OXA="aarch64_linux_gnu";; esac
-        curl -fsSL -o "$BIN/oxigraph" "https://github.com/oxigraph/oxigraph/releases/download/${OXV}/oxigraph_${OXV}_${OXA}"
-        chmod +x "$BIN/oxigraph"
 
         echo "$BIN" >> "$GITHUB_PATH"
 

@@ -37,6 +37,7 @@ on:
 
 permissions:
   contents: read
+  security-events: write     # so findings appear in the Security tab (SARIF)
 
 jobs:
   review:
@@ -72,6 +73,14 @@ jobs:
 
 Per-repo enforcement policy (`.sensei/gate-policy.yaml`) can re-level or silence
 any rule with no code change.
+
+## Code scanning (SARIF)
+
+By default the action uploads findings to **GitHub code scanning**, so they appear
+inline in the PR's *Files changed* view and under **Security → Code scanning**.
+This needs `security-events: write` in the calling workflow (shown above). On
+pull requests from forks, GitHub restricts this upload; the step is best-effort
+and never fails the run. Disable with `sarif: false`.
 
 ## Notes
 

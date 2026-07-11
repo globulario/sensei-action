@@ -1,5 +1,5 @@
 name: 'Sensei Architectural Review'
-description: "Review pull requests against your repository's architectural memory — invariants, forbidden fixes, and contracts."
+description: "Review pull requests against your repository's architectural memory — invariants, forbidden fixes, and contracts"
 author: globulario
 branding:
   icon: shield
@@ -22,12 +22,16 @@ inputs:
     description: "Domain/repo scope, e.g. github.com/you/yourrepo. Only needed if your graph hosts more than one domain."
     required: false
     default: ''
-  sensei-ref:
-    description: Git ref of globulario/sensei to build the reviewer from (tag/branch/SHA).
+  sarif:
+    description: "Upload findings to GitHub code scanning (needs 'security-events: write' in the calling workflow). 'true' or 'false'."
     required: false
-    default: v0.2.0
+    default: 'true'
+  sensei-ref:
+    description: Git ref of globulario/sensei to install/build the reviewer from (tag/branch/SHA).
+    required: false
+    default: v0.2.1
   go-version:
-    description: Go toolchain version used to build Sensei.
+    description: Go toolchain version used for the source-build fallback.
     required: false
     default: '1.25'
 
@@ -96,7 +100,8 @@ runs:
       shell: bash
       run: sensei build --input "${{ inputs.awareness-dir }}" --store-url "http://localhost:7878/store?default"
 
-    - name: Review the diff + write job summary
+    - name: Review the diff
+      id: review
       shell: bash
       run: |
         set -euo pipefail
@@ -111,23 +116,47 @@ runs:
         fi
         MODE="${{ inputs.mode }}"
         DOMAIN=""; [ -n "${{ inputs.domain }}" ] && DOMAIN="--domain ${{ inputs.domain }}"
+        SARIF_FILE="$RUNNER_TEMP/sensei.sarif"
+        SARIF=""; [ "${{ inputs.sarif }}" = "true" ] && SARIF="--sarif $SARIF_FILE"
         echo "reviewing diff: $RANGE (mode=$MODE)"
+
         set +e
-        sensei gate --diff "$RANGE" --repo-root . $DOMAIN --mode "$MODE" 2>&1 | tee "$RUNNER_TEMP/gate.out"
+        sensei gate --diff "$RANGE" --repo-root . $DOMAIN --mode "$MODE" $SARIF 2>&1 | tee "$RUNNER_TEMP/gate.out"
         CODE=${PIPESTATUS[0]}
         set -e
+        echo "code=$CODE" >> "$GITHUB_OUTPUT"
+
+        # Guarantee a SARIF file exists for the upload step (empty = clears prior alerts).
+        if [ "${{ inputs.sarif }}" = "true" ] && [ ! -f "$SARIF_FILE" ]; then
+          printf '%s' '{"$schema":"https://json.schemastore.org/sarif-2.1.0.json","version":"2.1.0","runs":[{"tool":{"driver":{"name":"Sensei","informationUri":"https://github.com/globulario/sensei","rules":[]}},"results":[]}]}' > "$SARIF_FILE"
+        fi
+
         {
           echo "## Sensei architectural review"
           echo ""
           echo "Diff \`$RANGE\` · mode \`$MODE\`"
           echo ""
           if [ "$MODE" = advisory ]; then echo "ℹ️ Advisory run — findings reported below; the check does not block."
-          elif [ "$CODE" = 0 ]; then echo "✅ No blocking architectural findings."
-          elif [ "$CODE" = 2 ]; then echo "⚠️ Sensei could not verify the diff and failed closed."
+          elif [ "$CODE" = "0" ]; then echo "✅ No blocking architectural findings."
+          elif [ "$CODE" = "2" ]; then echo "⚠️ Sensei could not verify the diff and failed closed."
           else echo "❌ Blocking architectural finding(s) — see below."; fi
           echo ""
           echo '```'
           cat "$RUNNER_TEMP/gate.out"
           echo '```'
         } >> "$GITHUB_STEP_SUMMARY"
-        exit $CODE
+
+    - name: Upload findings to code scanning
+      if: ${{ inputs.sarif == 'true' }}
+      continue-on-error: true
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ runner.temp }}/sensei.sarif
+        category: sensei
+
+    - name: Enforce verdict
+      if: ${{ steps.review.outputs.code != '0' }}
+      shell: bash
+      run: |
+        echo "::error::Sensei gate exited ${{ steps.review.outputs.code }} (mode=${{ inputs.mode }})"
+        exit ${{ steps.review.outputs.code }}

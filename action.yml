@@ -1,0 +1,110 @@
+name: 'Sensei Architectural Review'
+description: "Review pull requests against your repository's architectural memory — invariants, forbidden fixes, contracts, and required tests."
+author: globulario
+branding:
+  icon: shield
+  color: purple
+
+inputs:
+  mode:
+    description: "advisory (report findings, never blocks) or enforce (fail the check on a blocking finding)."
+    required: false
+    default: advisory
+  awareness-dir:
+    description: Directory holding the awareness YAML sources.
+    required: false
+    default: docs/awareness
+  diff:
+    description: "git diff range to review. Default: the PR base...HEAD (or the last commit on a push)."
+    required: false
+    default: ''
+  domain:
+    description: "Domain/repo scope, e.g. github.com/you/yourrepo. Only needed if your graph hosts more than one domain."
+    required: false
+    default: ''
+  sensei-ref:
+    description: Git ref of globulario/sensei to build the reviewer from (tag/branch/SHA).
+    required: false
+    default: main
+  go-version:
+    description: Go toolchain version used to build Sensei.
+    required: false
+    default: '1.25'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go-version }}
+
+    - name: Build Sensei + fetch Oxigraph
+      shell: bash
+      run: |
+        set -euo pipefail
+        SRC="$RUNNER_TEMP/sensei-src"
+        rm -rf "$SRC"
+        git clone --depth 1 --branch "${{ inputs.sensei-ref }}" https://github.com/globulario/sensei "$SRC"
+        BIN="$SRC/bin"; mkdir -p "$BIN"
+        echo "::group::Build Sensei (${{ inputs.sensei-ref }})"
+        ( cd "$SRC" && go build -o "$BIN/sensei" ./cmd/awg && go build -o "$BIN/awareness-graph" ./golang/server )
+        bash "$SRC/scripts/fetch-oxigraph.sh"     # → $BIN/oxigraph (no Docker)
+        echo "$BIN" >> "$GITHUB_PATH"
+        echo "::endgroup::"
+
+    - name: Validate the awareness corpus
+      shell: bash
+      run: sensei check
+
+    - name: Start store + server
+      shell: bash
+      run: |
+        set -euo pipefail
+        # `sensei serve` runs Oxigraph (:7878) as a child and the gRPC server (:10120).
+        nohup sensei serve --no-seed --allow-stale-seed > "$RUNNER_TEMP/sensei-serve.log" 2>&1 &
+        for i in $(seq 1 60); do
+          if (exec 3<>/dev/tcp/localhost/10120) 2>/dev/null; then exec 3>&-; break; fi
+          sleep 1
+          if [ "$i" = 60 ]; then echo "::error::server did not start"; cat "$RUNNER_TEMP/sensei-serve.log"; exit 1; fi
+        done
+
+    - name: Compile the awareness graph
+      shell: bash
+      run: sensei build --input "${{ inputs.awareness-dir }}" --store-url "http://localhost:7878/store?default"
+
+    - name: Review the diff + write job summary
+      shell: bash
+      run: |
+        set -euo pipefail
+        RANGE="${{ inputs.diff }}"
+        if [ -z "$RANGE" ]; then
+          if [ -n "${GITHUB_BASE_REF:-}" ]; then
+            git fetch --no-tags --depth=1 origin "$GITHUB_BASE_REF" || true
+            RANGE="origin/${GITHUB_BASE_REF}...HEAD"
+          else
+            RANGE="HEAD~1...HEAD"
+          fi
+        fi
+        MODE="${{ inputs.mode }}"
+        DOMAIN=""; [ -n "${{ inputs.domain }}" ] && DOMAIN="--domain ${{ inputs.domain }}"
+        echo "reviewing diff: $RANGE (mode=$MODE)"
+        set +e
+        sensei gate --diff "$RANGE" --repo-root . $DOMAIN --mode "$MODE" 2>&1 | tee "$RUNNER_TEMP/gate.out"
+        CODE=${PIPESTATUS[0]}
+        set -e
+        {
+          echo "## Sensei architectural review"
+          echo ""
+          echo "Diff \`$RANGE\` · mode \`$MODE\`"
+          echo ""
+          if [ "$MODE" = advisory ]; then echo "ℹ️ Advisory run — findings reported below; the check does not block."
+          elif [ "$CODE" = 0 ]; then echo "✅ No blocking architectural findings."
+          elif [ "$CODE" = 2 ]; then echo "⚠️ Sensei could not verify the diff and failed closed."
+          else echo "❌ Blocking architectural finding(s) — see below."; fi
+          echo ""
+          echo '```'
+          cat "$RUNNER_TEMP/gate.out"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        exit $CODE

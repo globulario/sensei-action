@@ -29,7 +29,7 @@ inputs:
   sensei-ref:
     description: Git ref of globulario/sensei to install/build the reviewer from (tag/branch/SHA).
     required: false
-    default: v0.2.1
+    default: v0.2.2
   go-version:
     description: Go toolchain version used for the source-build fallback.
     required: false

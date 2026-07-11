@@ -49,17 +49,24 @@ runs:
         set -euo pipefail
         REF="${{ inputs.sensei-ref }}"
         BIN="$RUNNER_TEMP/sensei-bin"; mkdir -p "$BIN"
-        case "$(uname -s)" in Linux) OS=linux;; Darwin) OS=darwin;; *) OS=linux;; esac
+        case "$(uname -s)" in
+          Linux) OS=linux;;
+          Darwin) OS=darwin;;
+          MINGW*|MSYS*|CYGWIN*) OS=windows;;   # windows-latest under Git Bash
+          *) OS=linux;;
+        esac
         case "$(uname -m)" in x86_64|amd64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; *) ARCH=amd64;; esac
         PLATFORM="${OS}-${ARCH}"
         REL="https://github.com/globulario/sensei/releases/download/${REF}"
 
         # Fast path: the self-contained per-platform tarball (bin/ with sensei,
         # awareness-graph, awareness-mcp, oxigraph, awg + setup.sh). Releases from
-        # v1.0.0 carry linux-amd64, linux-arm64, darwin-arm64.
+        # v1.0.0 carry linux-amd64/arm64 + darwin-arm64; v1.1.0 adds windows-amd64.
         got=0
         if curl -fsSL -o "$RUNNER_TEMP/sensei.tgz" "${REL}/sensei-${PLATFORM}.tar.gz"; then
-          tar xzf "$RUNNER_TEMP/sensei.tgz" -C "$RUNNER_TEMP"
+          # Relative extract from RUNNER_TEMP: Windows Git Bash tar reads "D:\..."
+          # as a remote host (host:path), so avoid a colon in the -f argument.
+          ( cd "$RUNNER_TEMP" && tar xzf sensei.tgz )
           cp "$RUNNER_TEMP/sensei-${PLATFORM}/bin/"* "$BIN/"
           chmod +x "$BIN/"*; got=1
           echo "✓ using prebuilt Sensei bundle (${REF}, ${PLATFORM}) — Oxigraph included"

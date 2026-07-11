@@ -25,7 +25,7 @@ inputs:
   sensei-ref:
     description: Git ref of globulario/sensei to build the reviewer from (tag/branch/SHA).
     required: false
-    default: main
+    default: v0.2.0
   go-version:
     description: Go toolchain version used to build Sensei.
     required: false
@@ -34,24 +34,47 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Set up Go
+    - name: Set up Go (for the source-build fallback)
       uses: actions/setup-go@v5
       with:
         go-version: ${{ inputs.go-version }}
 
-    - name: Build Sensei + fetch Oxigraph
+    - name: Install Sensei (prebuilt, or build) + Oxigraph
       shell: bash
       run: |
         set -euo pipefail
-        SRC="$RUNNER_TEMP/sensei-src"
-        rm -rf "$SRC"
-        git clone --depth 1 --branch "${{ inputs.sensei-ref }}" https://github.com/globulario/sensei "$SRC"
-        BIN="$SRC/bin"; mkdir -p "$BIN"
-        echo "::group::Build Sensei (${{ inputs.sensei-ref }})"
-        ( cd "$SRC" && go build -o "$BIN/sensei" ./cmd/awg && go build -o "$BIN/awareness-graph" ./golang/server )
-        bash "$SRC/scripts/fetch-oxigraph.sh"     # → $BIN/oxigraph (no Docker)
+        REF="${{ inputs.sensei-ref }}"
+        BIN="$RUNNER_TEMP/sensei-bin"; mkdir -p "$BIN"
+        case "$(uname -m)" in x86_64) ARCH=amd64;; aarch64|arm64) ARCH=arm64;; *) ARCH=amd64;; esac
+
+        # Fast path: download prebuilt standalone binaries for this ref (linux-amd64).
+        got=0
+        if [ "$ARCH" = amd64 ]; then
+          REL="https://github.com/globulario/sensei/releases/download/${REF}"
+          if curl -fsSL -o "$BIN/sensei" "${REL}/sensei-linux-amd64" \
+             && curl -fsSL -o "$BIN/awareness-graph" "${REL}/awareness-graph-linux-amd64"; then
+            chmod +x "$BIN/sensei" "$BIN/awareness-graph"; got=1
+            echo "✓ using prebuilt Sensei binaries (${REF}, linux-amd64)"
+          fi
+        fi
+
+        # Fallback: build from source (any ref / arch without prebuilt binaries).
+        if [ "$got" = 0 ]; then
+          echo "→ no prebuilt binaries for ${REF} (${ARCH}); building from source"
+          command -v go >/dev/null 2>&1 || { echo "::error::Go toolchain unavailable for the source-build fallback"; exit 1; }
+          SRC="$RUNNER_TEMP/sensei-src"; rm -rf "$SRC"
+          git clone --depth 1 --branch "${REF}" https://github.com/globulario/sensei "$SRC"
+          ( cd "$SRC" && go build -o "$BIN/sensei" ./cmd/awg && go build -o "$BIN/awareness-graph" ./golang/server )
+        fi
+
+        # Oxigraph (upstream static binary; no Docker, no cgo).
+        OXV="$(curl -fsSL https://api.github.com/repos/oxigraph/oxigraph/releases/latest | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+        [ -n "${OXV:-}" ] || OXV="v0.5.9"
+        case "$ARCH" in amd64) OXA="x86_64_linux_gnu";; arm64) OXA="aarch64_linux_gnu";; esac
+        curl -fsSL -o "$BIN/oxigraph" "https://github.com/oxigraph/oxigraph/releases/download/${OXV}/oxigraph_${OXV}_${OXA}"
+        chmod +x "$BIN/oxigraph"
+
         echo "$BIN" >> "$GITHUB_PATH"
-        echo "::endgroup::"
 
     - name: Validate the awareness corpus
       shell: bash

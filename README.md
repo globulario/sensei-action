@@ -84,6 +84,13 @@ A disabled organization or repository currently appears in Actions as an
 `actions/ai-inference` HTTP `403` with no response body. No Sensei code or model
 prompt has executed when that preflight fails.
 
+### Allow the bootstrap workflow to create its draft PR
+
+Under **Repository Settings → Actions → General → Workflow permissions**, enable
+**Allow GitHub Actions to create and approve pull requests**. Sensei only uses
+that capability to push a new bootstrap branch and open a draft PR. It never
+commits directly to the default branch.
+
 Copy [`examples/sensei-bootstrap.yml`](examples/sensei-bootstrap.yml) into the
 target repository as `.github/workflows/sensei-bootstrap.yml`. Commit it to the
 default branch, open the **Actions** tab, choose **Bootstrap Sensei architectural
@@ -112,6 +119,8 @@ bounded repository context
         ↓
 GitHub Models candidate draft
         ↓
+force every model claim to review_only
+        ↓
 strict parser + fixed writable paths
         ↓
 sensei check + bootstrap freshness check
@@ -129,9 +138,12 @@ paths. It may only:
 - write `docs/awareness/BOOTSTRAP_QUESTIONS.md`
 - write proposal and proof receipts under `.sensei/`
 
-An established invariant or failure-mode corpus is never overwritten. The model
-gets at most two attempts, and every accepted result must pass Sensei validation.
-All changes land in a draft PR rather than on the default branch.
+An established invariant or failure-mode corpus is never overwritten. Every
+model-authored invariant and failure mode is normalized to `review_only`, even if
+the model proposes `active` or `fixed`. Human promotion is a separate governed
+act. The model gets at most two attempts, and every accepted result must pass
+Sensei validation. All changes land in a draft PR rather than on the default
+branch.
 
 ### Bootstrap inputs
 
@@ -161,8 +173,8 @@ isolated Go fixture repository.
   default branch.
 - Bootstrap write permissions are used only to push a new branch and open a
   draft PR.
-- Model output is untrusted input until parsed, path-restricted, and validated by
-  Sensei.
+- Model output is untrusted input until normalized, parsed, path-restricted, and
+  validated by Sensei.
 - The model response digest, bounded context digest, source revision, accepted
   attempt, and written-file digests are represented in bootstrap receipts.
 

@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
   models: read
 
 jobs:
@@ -24,6 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SENSEI_MODEL: ${{ inputs.model || 'openai/gpt-4.1' }}
+      PROOF_ARTIFACT: sensei-bootstrap-live-proof-${{ github.run_id }}
+      PROOF_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - name: Check out the trusted revision
         uses: actions/checkout@v4
@@ -90,7 +93,7 @@ jobs:
       - name: Preserve live-proof evidence
         uses: actions/upload-artifact@v4
         with:
-          name: sensei-bootstrap-live-proof-${{ github.run_id }}
+          name: ${{ env.PROOF_ARTIFACT }}
           if-no-files-found: error
           path: |
             fixture/.sensei/ai-bootstrap-receipt.json
@@ -98,3 +101,73 @@ jobs:
             fixture/docs/awareness/BOOTSTRAP_QUESTIONS.md
             fixture/docs/awareness/invariants.yaml
             fixture/docs/awareness/failure_modes.yaml
+
+      - name: Publish successful live proof
+        uses: actions/github-script@v7
+        env:
+          RECEIPT_PATH: fixture/.sensei/ai-bootstrap-receipt.json
+        with:
+          script: |
+            const fs = require('fs');
+            const receipt = JSON.parse(fs.readFileSync(process.env.RECEIPT_PATH, 'utf8'));
+            const marker = '<!-- sensei-bootstrap-live-proof -->';
+            const runUrl = process.env.PROOF_RUN_URL;
+            const artifact = process.env.PROOF_ARTIFACT;
+            const body = `${marker}
+            ## ✅ Action-first bootstrap live proof
+
+            The trusted GitHub-hosted runner completed the full bootstrap path.
+
+            - **source SHA:** \`${context.sha}\`
+            - **model:** \`${receipt.model}\`
+            - **accepted attempt:** \`${receipt.accepted_attempt}\`
+            - **context digest:** \`${receipt.context_sha256}\`
+            - **model response digest:** \`${receipt.proposal_response_sha256}\`
+            - **written evidence files:** \`${receipt.files.length}\`
+            - **artifact:** \`${artifact}\`
+            - **workflow run:** ${runUrl}
+
+            Model-authored claims remain \`review_only\`; this proof does not promote them to architectural authority.`;
+            const params = { owner: context.repo.owner, repo: context.repo.repo, issue_number: 2 };
+            const { data: comments } = await github.rest.issues.listComments({ ...params, per_page: 100 });
+            const previous = comments.find(comment => comment.body && comment.body.includes(marker));
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previous.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({ ...params, body });
+            }
+
+      - name: Publish failed live-proof boundary
+        if: ${{ failure() }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- sensei-bootstrap-live-proof-failure -->';
+            const body = `${marker}
+            ## ❌ Action-first bootstrap live proof stopped
+
+            The trusted smoke did not reach a valid governed receipt.
+
+            - **source SHA:** \`${context.sha}\`
+            - **model:** \`${process.env.SENSEI_MODEL}\`
+            - **workflow run:** ${process.env.PROOF_RUN_URL}
+
+            Inspect the run to identify the exact stopped boundary. No result should be treated as certified until the success receipt replaces this notice.`;
+            const params = { owner: context.repo.owner, repo: context.repo.repo, issue_number: 2 };
+            const { data: comments } = await github.rest.issues.listComments({ ...params, per_page: 100 });
+            const previous = comments.find(comment => comment.body && comment.body.includes(marker));
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previous.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({ ...params, body });
+            }

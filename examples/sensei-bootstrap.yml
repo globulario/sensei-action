@@ -1,0 +1,38 @@
+name: Bootstrap Sensei architectural memory
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: GitHub Models model used for bounded candidate drafting
+        required: false
+        default: openai/gpt-4o
+        type: string
+      dry_run:
+        description: Validate without creating a draft PR
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+  models: read
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the trusted default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Bootstrap Sensei
+        uses: globulario/sensei-action/bootstrap@v1
+        with:
+          base-branch: ${{ github.event.repository.default_branch }}
+          model: ${{ inputs.model }}
+          dry-run: ${{ inputs.dry_run }}
+          sensei-ref: v1.1.0

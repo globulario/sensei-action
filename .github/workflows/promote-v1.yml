@@ -1,0 +1,45 @@
+name: Promote v1 action tag
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "action.yml"
+      - "bootstrap/**"
+      - ".github/workflows/promote-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-sensei-action-v1
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the accepted main revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify both public action entrypoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f action.yml
+          test -f bootstrap/action.yml
+          ruby -e "require 'yaml'; YAML.load_file('action.yml'); YAML.load_file('bootstrap/action.yml')"
+
+      - name: Move the floating v1 tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --force v1 "$GITHUB_SHA"
+          git push origin refs/tags/v1 --force
+          echo "Promoted globulario/sensei-action@v1 to $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

@@ -91,6 +91,12 @@ Under **Repository Settings → Actions → General → Workflow permissions**, 
 that capability to push a new bootstrap branch and open a draft PR. It never
 commits directly to the default branch.
 
+A pull request created by the repository's temporary `GITHUB_TOKEN` may place its
+own workflows in an approval-required state. A maintainer with write access can
+approve those checks from the PR. A later GitHub App installation token can
+remove that small manual seam without moving Sensei's compute off GitHub-hosted
+runners.
+
 Copy [`examples/sensei-bootstrap.yml`](examples/sensei-bootstrap.yml) into the
 target repository as `.github/workflows/sensei-bootstrap.yml`. Commit it to the
 default branch, open the **Actions** tab, choose **Bootstrap Sensei architectural

@@ -5,12 +5,20 @@ import tempfile
 import unittest
 from pathlib import Path
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "bootstrap_agent.py"
+SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
+MODULE_PATH = SCRIPTS_DIR / "bootstrap_agent.py"
 spec = importlib.util.spec_from_file_location("bootstrap_agent", MODULE_PATH)
 bootstrap_agent = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 sys.modules[spec.name] = bootstrap_agent
 spec.loader.exec_module(bootstrap_agent)
+
+NORMALIZER_PATH = SCRIPTS_DIR / "normalize_proposal.py"
+normalizer_spec = importlib.util.spec_from_file_location("normalize_proposal", NORMALIZER_PATH)
+normalize_proposal = importlib.util.module_from_spec(normalizer_spec)
+assert normalizer_spec.loader is not None
+sys.modules[normalizer_spec.name] = normalize_proposal
+normalizer_spec.loader.exec_module(normalize_proposal)
 
 
 class BootstrapAgentTests(unittest.TestCase):
@@ -70,6 +78,26 @@ class BootstrapAgentTests(unittest.TestCase):
             with self.assertRaises(bootstrap_agent.BootstrapError):
                 bootstrap_agent.write_proposal_files(root, payload, policy, 1, "test/model")
             self.assertIn("existing.rule", (root / bootstrap_agent.INVARIANTS_PATH).read_text())
+
+    def test_model_statuses_are_forced_to_review_only(self):
+        payload = {
+            "summary": "Grounded draft",
+            "invariants_yaml": "invariants:\n  - id: repo.rule\n    status: active\n",
+            "failure_modes_yaml": "failure_modes:\n  - id: repo.failure\n    status: fixed\n",
+            "questions_markdown": "# Questions\n",
+            "evidence": ["README.md"],
+            "uncertainties": [],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            response = Path(tmp) / "response.json"
+            response.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertTrue(normalize_proposal.normalize(response))
+            normalized = json.loads(response.read_text(encoding="utf-8"))
+            self.assertNotIn("status: active", normalized["invariants_yaml"])
+            self.assertNotIn("status: fixed", normalized["failure_modes_yaml"])
+            self.assertEqual(normalized["invariants_yaml"].count("status: review_only"), 1)
+            self.assertEqual(normalized["failure_modes_yaml"].count("status: review_only"), 1)
+            self.assertTrue(any("human promotion" in item for item in normalized["uncertainties"]))
 
     def test_questions_are_normalized(self):
         result = bootstrap_agent.safe_questions_markdown("Who owns persistence?")

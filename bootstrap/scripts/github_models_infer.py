@@ -87,6 +87,8 @@ def main() -> int:
     parser.add_argument("--endpoint", default=ENDPOINT)
     args = parser.parse_args()
 
+    target = Path(args.response_file)
+    error_target = target.with_suffix(target.suffix + ".error.txt")
     try:
         prompt = Path(args.prompt_file).read_text(encoding="utf-8")
         content = infer(
@@ -96,13 +98,16 @@ def main() -> int:
             args.max_tokens,
             args.endpoint,
         )
-        target = Path(args.response_file)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content.rstrip() + "\n", encoding="utf-8")
+        error_target.unlink(missing_ok=True)
         print(target)
         return 0
     except (OSError, InferenceError) as exc:
-        print(f"Sensei GitHub Models inference: {exc}", file=sys.stderr)
+        message = f"Sensei GitHub Models inference: {exc}"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        error_target.write_text(message + "\n", encoding="utf-8")
+        print(message, file=sys.stderr)
         return 1
 
 

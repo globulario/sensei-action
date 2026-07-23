@@ -54,7 +54,7 @@ jobs:
           model: ${{ env.SENSEI_MODEL }}
           models-token: ${{ secrets.SENSEI_MODELS_TOKEN }}
           sensei-ref: v1.1.0
-          max-context-bytes: '60000'
+          max-context-bytes: '20000'
 
       - name: Preserve direct-smoke evidence
         if: ${{ always() }}
@@ -85,6 +85,7 @@ jobs:
 
             - **source SHA:** \`${context.sha}\`
             - **model:** \`${process.env.SENSEI_MODEL}\`
+            - **context budget:** \`20000 bytes\`
             - **composite outcome:** \`${process.env.BOOTSTRAP_OUTCOME}\`
             - **governed receipt:** \`${hasReceipt ? 'present' : 'absent'}\`
             - **accepted attempt:** \`${receipt ? receipt.accepted_attempt : 'none'}\`

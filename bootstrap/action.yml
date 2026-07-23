@@ -7,10 +7,6 @@ inputs:
     description: Git ref of globulario/sensei to install.
     required: false
     default: v1.1.0
-  go-version:
-    description: Go toolchain used for the Sensei source-build fallback.
-    required: false
-    default: '1.25'
   model:
     description: GitHub Models model identifier.
     required: false
@@ -53,11 +49,6 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Set up Go for Sensei fallback build
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ inputs.go-version }}
-
     - name: Install Sensei
       shell: bash
       run: |

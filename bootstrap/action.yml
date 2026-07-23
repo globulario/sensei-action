@@ -1,0 +1,233 @@
+name: Sensei AI Bootstrap
+description: Bootstrap architectural memory in a draft PR using deterministic Sensei extraction and a bounded GitHub Models proposal.
+author: globulario
+
+inputs:
+  sensei-ref:
+    description: Git ref of globulario/sensei to install.
+    required: false
+    default: v1.1.0
+  go-version:
+    description: Go toolchain used for the Sensei source-build fallback.
+    required: false
+    default: '1.25'
+  model:
+    description: GitHub Models model identifier.
+    required: false
+    default: openai/gpt-4o
+  repository-root:
+    description: Repository checkout root.
+    required: false
+    default: .
+  base-branch:
+    description: Base branch for the generated draft PR.
+    required: true
+  branch-prefix:
+    description: Prefix for the generated bootstrap branch.
+    required: false
+    default: sensei/bootstrap
+  pr-title:
+    description: Title for the generated draft PR.
+    required: false
+    default: 'chore: bootstrap Sensei architectural memory'
+  max-context-bytes:
+    description: Maximum repository context sent to GitHub Models.
+    required: false
+    default: '180000'
+  dry-run:
+    description: Validate and summarize without pushing a branch or creating a PR.
+    required: false
+    default: 'false'
+
+outputs:
+  pr-url:
+    description: URL of the generated draft PR, when one is created.
+    value: ${{ steps.publish.outputs.pr-url }}
+  branch:
+    description: Generated bootstrap branch.
+    value: ${{ steps.publish.outputs.branch }}
+  accepted-attempt:
+    description: Model attempt accepted by Sensei validation.
+    value: ${{ steps.accept.outputs.attempt }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go for Sensei fallback build
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go-version }}
+
+    - name: Install Sensei
+      shell: bash
+      run: |
+        "$GITHUB_ACTION_PATH/scripts/install-sensei.sh" "${{ inputs.sensei-ref }}"
+
+    - name: Run deterministic bootstrap
+      shell: bash
+      working-directory: ${{ inputs.repository-root }}
+      run: |
+        set -euo pipefail
+        sensei bootstrap --path . --skip-history | tee "$RUNNER_TEMP/sensei-bootstrap-deterministic.txt"
+
+    - name: Prepare bounded AI context
+      shell: bash
+      run: |
+        set -euo pipefail
+        state="$RUNNER_TEMP/sensei-ai-bootstrap"
+        rm -rf "$state"
+        mkdir -p "$state"
+        python3 "$GITHUB_ACTION_PATH/scripts/bootstrap_agent.py" prepare \
+          --repo "${{ inputs.repository-root }}" \
+          --state-dir "$state" \
+          --deterministic-report "$RUNNER_TEMP/sensei-bootstrap-deterministic.txt" \
+          --max-context-bytes "${{ inputs.max-context-bytes }}"
+
+    - name: Draft architectural candidates
+      id: inference1
+      uses: actions/ai-inference@v1
+      with:
+        prompt-file: ${{ runner.temp }}/sensei-ai-bootstrap/attempt-1.prompt.txt
+        model: ${{ inputs.model }}
+        max-completion-tokens: '7000'
+        temperature: '0.1'
+
+    - name: Validate first proposal
+      id: attempt1
+      shell: bash
+      run: |
+        set -euo pipefail
+        state="$RUNNER_TEMP/sensei-ai-bootstrap"
+        python3 "$GITHUB_ACTION_PATH/scripts/bootstrap_agent.py" apply \
+          --repo "${{ inputs.repository-root }}" \
+          --state-dir "$state" \
+          --response-file "${{ steps.inference1.outputs.response-file }}" \
+          --result-file "$state/attempt-1.result.json" \
+          --attempt 1 \
+          --model "${{ inputs.model }}" \
+          --repair-prompt attempt-2.prompt.txt
+        echo "valid=$(jq -r '.valid' "$state/attempt-1.result.json")" >> "$GITHUB_OUTPUT"
+
+    - name: Repair rejected proposal
+      id: inference2
+      if: ${{ steps.attempt1.outputs.valid != 'true' }}
+      uses: actions/ai-inference@v1
+      with:
+        prompt-file: ${{ runner.temp }}/sensei-ai-bootstrap/attempt-2.prompt.txt
+        model: ${{ inputs.model }}
+        max-completion-tokens: '7000'
+        temperature: '0.1'
+
+    - name: Validate repaired proposal
+      id: attempt2
+      if: ${{ steps.attempt1.outputs.valid != 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        state="$RUNNER_TEMP/sensei-ai-bootstrap"
+        python3 "$GITHUB_ACTION_PATH/scripts/bootstrap_agent.py" apply \
+          --repo "${{ inputs.repository-root }}" \
+          --state-dir "$state" \
+          --response-file "${{ steps.inference2.outputs.response-file }}" \
+          --result-file "$state/attempt-2.result.json" \
+          --attempt 2 \
+          --model "${{ inputs.model }}"
+        echo "valid=$(jq -r '.valid' "$state/attempt-2.result.json")" >> "$GITHUB_OUTPUT"
+
+    - name: Select accepted proposal
+      id: accept
+      shell: bash
+      run: |
+        set -euo pipefail
+        state="$RUNNER_TEMP/sensei-ai-bootstrap"
+        if [ "${{ steps.attempt1.outputs.valid }}" = true ]; then
+          result="$state/attempt-1.result.json"
+          attempt=1
+        elif [ "${{ steps.attempt2.outputs.valid }}" = true ]; then
+          result="$state/attempt-2.result.json"
+          attempt=2
+        else
+          echo "::error::Sensei rejected both bounded bootstrap proposals."
+          cat "$state/attempt-2.result.json" 2>/dev/null || cat "$state/attempt-1.result.json"
+          exit 1
+        fi
+        echo "result=$result" >> "$GITHUB_OUTPUT"
+        echo "attempt=$attempt" >> "$GITHUB_OUTPUT"
+
+    - name: Write bootstrap receipt and final validation
+      shell: bash
+      working-directory: ${{ inputs.repository-root }}
+      run: |
+        set -euo pipefail
+        python3 "$GITHUB_ACTION_PATH/scripts/bootstrap_agent.py" finalize \
+          --repo . \
+          --state-dir "$RUNNER_TEMP/sensei-ai-bootstrap" \
+          --result-file "${{ steps.accept.outputs.result }}" \
+          --model "${{ inputs.model }}"
+        sensei check
+        sensei bootstrap --path . --skip-history --check
+
+    - name: Publish draft bootstrap PR
+      id: publish
+      if: ${{ inputs.dry-run != 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.repository-root }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        branch="${{ inputs.branch-prefix }}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        git config user.name "sensei-bootstrap[bot]"
+        git config user.email "sensei-bootstrap[bot]@users.noreply.github.com"
+        git checkout -b "$branch"
+        git add -A
+        if git diff --cached --quiet; then
+          echo "No bootstrap changes were produced."
+          echo "branch=" >> "$GITHUB_OUTPUT"
+          echo "pr-url=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        git commit -m "chore: bootstrap Sensei architectural memory"
+        git push --set-upstream origin "$branch"
+        cat > "$RUNNER_TEMP/sensei-bootstrap-pr.md" <<'BODY'
+        ## Sensei bootstrap
+
+        This draft PR was generated by the Action-first Sensei bootstrap flow.
+
+        - deterministic repository extraction ran before AI inference
+        - the model could only populate empty starter invariants/failure modes
+        - source code was not writable
+        - Sensei validated the accepted proposal
+        - uncertain architectural claims remain explicit questions for a human architect
+
+        Review `docs/awareness/BOOTSTRAP_QUESTIONS.md` before promoting this corpus from review-only knowledge.
+        BODY
+        pr_url="$(gh pr create \
+          --draft \
+          --base "${{ inputs.base-branch }}" \
+          --head "$branch" \
+          --title "${{ inputs.pr-title }}" \
+          --body-file "$RUNNER_TEMP/sensei-bootstrap-pr.md")"
+        echo "branch=$branch" >> "$GITHUB_OUTPUT"
+        echo "pr-url=$pr_url" >> "$GITHUB_OUTPUT"
+        echo "Created draft bootstrap PR: $pr_url"
+
+    - name: Bootstrap summary
+      shell: bash
+      working-directory: ${{ inputs.repository-root }}
+      run: |
+        {
+          echo "## Sensei AI bootstrap"
+          echo
+          echo "Accepted model attempt: **${{ steps.accept.outputs.attempt }}**"
+          echo
+          if [ "${{ inputs.dry-run }}" = true ]; then
+            echo "Dry run completed. No branch or PR was created."
+          elif [ -n "${{ steps.publish.outputs.pr-url }}" ]; then
+            echo "Draft PR: ${{ steps.publish.outputs.pr-url }}"
+          else
+            echo "No repository changes were produced."
+          fi
+          echo
+          echo "The model never received write access outside the bootstrap awareness allowlist."
+        } >> "$GITHUB_STEP_SUMMARY"

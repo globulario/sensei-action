@@ -59,7 +59,10 @@ runs:
       working-directory: ${{ inputs.repository-root }}
       run: |
         set -euo pipefail
-        sensei bootstrap --path . --skip-history | tee "$RUNNER_TEMP/sensei-bootstrap-deterministic.txt"
+        report="$RUNNER_TEMP/sensei-bootstrap-deterministic.txt"
+        sensei bootstrap --path . --skip-history > "$report"
+        echo "Deterministic Sensei bootstrap completed."
+        grep -E 'components found:|source anchors found:|validation findings:|build status:' "$report" || true
 
     - name: Prepare bounded AI context
       shell: bash

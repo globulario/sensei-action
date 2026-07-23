@@ -83,8 +83,7 @@ runs:
       with:
         prompt-file: ${{ runner.temp }}/sensei-ai-bootstrap/attempt-1.prompt.txt
         model: ${{ inputs.model }}
-        max-completion-tokens: '7000'
-        temperature: '0.1'
+        max-tokens: '7000'
 
     - name: Validate first proposal
       id: attempt1
@@ -109,8 +108,7 @@ runs:
       with:
         prompt-file: ${{ runner.temp }}/sensei-ai-bootstrap/attempt-2.prompt.txt
         model: ${{ inputs.model }}
-        max-completion-tokens: '7000'
-        temperature: '0.1'
+        max-tokens: '7000'
 
     - name: Validate repaired proposal
       id: attempt2

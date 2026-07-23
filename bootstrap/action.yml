@@ -33,7 +33,7 @@ inputs:
   max-context-bytes:
     description: Maximum repository context sent to GitHub Models.
     required: false
-    default: '180000'
+    default: '20000'
   dry-run:
     description: Validate and summarize without pushing a branch or creating a PR.
     required: false

@@ -83,12 +83,19 @@ runs:
 
     - name: Draft architectural candidates
       id: inference1
-      uses: actions/ai-inference@v1
-      with:
-        prompt-file: ${{ runner.temp }}/sensei-ai-bootstrap/attempt-1.prompt.txt
-        model: ${{ inputs.model }}
-        max-tokens: '7000'
-        token: ${{ inputs.models-token || github.token }}
+      shell: bash
+      env:
+        SENSEI_MODELS_TOKEN: ${{ inputs.models-token || github.token }}
+      run: |
+        set -euo pipefail
+        state="$RUNNER_TEMP/sensei-ai-bootstrap"
+        response="$state/attempt-1.response.json"
+        python3 "$GITHUB_ACTION_PATH/scripts/github_models_infer.py" \
+          --prompt-file "$state/attempt-1.prompt.txt" \
+          --response-file "$response" \
+          --model "${{ inputs.model }}" \
+          --max-tokens 4000
+        echo "response-file=$response" >> "$GITHUB_OUTPUT"
 
     - name: Validate first proposal
       id: attempt1
@@ -108,15 +115,29 @@ runs:
           --repair-prompt attempt-2.prompt.txt
         echo "valid=$(jq -r '.valid' "$state/attempt-1.result.json")" >> "$GITHUB_OUTPUT"
 
+    - name: Respect GitHub Models request window
+      if: ${{ steps.attempt1.outputs.valid != 'true' }}
+      shell: bash
+      run: |
+        echo "First proposal was rejected by Sensei; waiting before the one bounded repair request."
+        sleep 65
+
     - name: Repair rejected proposal
       id: inference2
       if: ${{ steps.attempt1.outputs.valid != 'true' }}
-      uses: actions/ai-inference@v1
-      with:
-        prompt-file: ${{ runner.temp }}/sensei-ai-bootstrap/attempt-2.prompt.txt
-        model: ${{ inputs.model }}
-        max-tokens: '7000'
-        token: ${{ inputs.models-token || github.token }}
+      shell: bash
+      env:
+        SENSEI_MODELS_TOKEN: ${{ inputs.models-token || github.token }}
+      run: |
+        set -euo pipefail
+        state="$RUNNER_TEMP/sensei-ai-bootstrap"
+        response="$state/attempt-2.response.json"
+        python3 "$GITHUB_ACTION_PATH/scripts/github_models_infer.py" \
+          --prompt-file "$state/attempt-2.prompt.txt" \
+          --response-file "$response" \
+          --model "${{ inputs.model }}" \
+          --max-tokens 4000
+        echo "response-file=$response" >> "$GITHUB_OUTPUT"
 
     - name: Validate repaired proposal
       id: attempt2

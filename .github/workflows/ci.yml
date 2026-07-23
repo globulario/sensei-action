@@ -22,20 +22,24 @@ jobs:
         run: bash -n bootstrap/scripts/install-sensei.sh
       - name: Parse action YAML
         run: |
-          ruby -e "require 'yaml'; YAML.load_file('action.yml'); YAML.load_file('bootstrap/action.yml'); YAML.load_file('examples/sensei-bootstrap.yml'); YAML.load_file('.github/workflows/bootstrap-smoke.yml')"
+          ruby -e "require 'yaml'; YAML.load_file('action.yml'); YAML.load_file('bootstrap/action.yml'); YAML.load_file('examples/sensei-bootstrap.yml'); YAML.load_file('.github/workflows/bootstrap-smoke.yml'); YAML.load_file('.github/workflows/bootstrap-direct-smoke.yml')"
       - name: Verify Models token boundary
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
           action = Path('bootstrap/action.yml').read_text()
+          client = Path('bootstrap/scripts/github_models_infer.py').read_text()
+          tests = Path('bootstrap/tests/test_github_models_infer.py').read_text()
           example = Path('examples/sensei-bootstrap.yml').read_text()
           smoke = Path('.github/workflows/bootstrap-smoke.yml').read_text()
           expression_open = '$' + '{{'
 
           assert 'default: openai/gpt-4.1' in action
-          assert f'token: {expression_open} inputs.models-token || github.token }}' + '}' in action
+          assert f'SENSEI_MODELS_TOKEN: {expression_open} inputs.models-token || github.token }}' + '}' in action
+          assert 'github_models_infer.py' in action
+          assert 'Authorization": f"Bearer {token}"' in client
+          assert 'self.assertNotIn("top-secret", captured["body"])' in tests
           assert f'models-token: {expression_open} secrets.SENSEI_MODELS_TOKEN }}' + '}' in example
-          assert f'token: {expression_open} secrets.SENSEI_MODELS_TOKEN }}' + '}' in smoke
           assert 'pull_request:' not in smoke
           PY

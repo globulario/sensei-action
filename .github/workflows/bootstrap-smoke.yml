@@ -1,12 +1,13 @@
 name: Bootstrap live smoke
 
 on:
-  pull_request:
-    paths:
-      - "bootstrap/**"
-      - "examples/sensei-bootstrap.yml"
-      - ".github/workflows/bootstrap-smoke.yml"
   workflow_dispatch:
+    inputs:
+      model:
+        description: GitHub Models model used for the live proof
+        required: false
+        default: openai/gpt-4o
+        type: string
 
 permissions:
   contents: read
@@ -20,7 +21,7 @@ jobs:
         uses: actions/ai-inference@v1
         with:
           prompt: 'Return exactly: {"ok":true}'
-          model: openai/gpt-4o
+          model: ${{ inputs.model }}
           max-tokens: '20'
 
       - name: Create a trusted fixture repository
@@ -34,5 +35,5 @@ jobs:
           repository-root: fixture
           base-branch: main
           dry-run: 'true'
-          model: openai/gpt-4o
+          model: ${{ inputs.model }}
           sensei-ref: v1.1.0

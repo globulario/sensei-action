@@ -6,7 +6,7 @@ on:
       model:
         description: GitHub Models model used for bounded candidate drafting
         required: false
-        default: openai/gpt-4o
+        default: openai/gpt-4.1
         type: string
       dry_run:
         description: Validate without creating a draft PR
@@ -34,5 +34,6 @@ jobs:
         with:
           base-branch: ${{ github.event.repository.default_branch }}
           model: ${{ inputs.model }}
+          models-token: ${{ secrets.SENSEI_MODELS_TOKEN }}
           dry-run: ${{ inputs.dry_run }}
           sensei-ref: v1.1.0

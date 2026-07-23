@@ -43,6 +43,27 @@ else
   )
 fi
 
+# Sensei v1.1.0 used `bootstrap --repo`; current Sensei prefers `--path` and
+# retains `--repo` as a compatibility alias. Normalize the modern Action
+# contract to the older flag so one pinned workflow works with both versions.
+if [[ -f "$bin_dir/sensei" ]]; then
+  mv "$bin_dir/sensei" "$bin_dir/sensei-real"
+  cat > "$bin_dir/sensei" <<'WRAPPER'
+#!/usr/bin/env bash
+set -euo pipefail
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+translated=()
+for argument in "$@"; do
+  if [[ "$argument" == "--path" ]]; then
+    argument="--repo"
+  fi
+  translated+=("$argument")
+done
+exec "$script_dir/sensei-real" "${translated[@]}"
+WRAPPER
+  chmod +x "$bin_dir/sensei" "$bin_dir/sensei-real"
+fi
+
 if [[ -n "${GITHUB_PATH:-}" ]]; then
   echo "$bin_dir" >> "$GITHUB_PATH"
 else

@@ -20,35 +20,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir fixture
-          cd fixture
-          git init -b main
-          git config user.name "Sensei Smoke"
-          git config user.email "sensei-smoke@users.noreply.github.com"
-          cat > README.md <<'EOF'
-          # Orders service
-
-          The HTTP API accepts orders and persists them through the repository package.
-          Business handlers must not write directly to the database adapter.
-          EOF
-          cat > go.mod <<'EOF'
-          module example.com/orders
-
-          go 1.25
-          EOF
-          mkdir -p cmd/orders internal/repository
-          cat > cmd/orders/main.go <<'EOF'
-          package main
-
-          func main() {}
-          EOF
-          cat > internal/repository/orders.go <<'EOF'
-          package repository
-
-          type Order struct { ID string }
-          EOF
-          git add -A
-          git commit -m "initial fixture"
+          git init -b main fixture
+          git -C fixture config user.name "Sensei Smoke"
+          git -C fixture config user.email "sensei-smoke@users.noreply.github.com"
+          mkdir -p fixture/cmd/orders fixture/internal/repository
+          printf '%s\n' '# Orders service' '' 'The HTTP API accepts orders and persists them through the repository package.' 'Business handlers must not write directly to the database adapter.' > fixture/README.md
+          printf '%s\n' 'module example.com/orders' '' 'go 1.25' > fixture/go.mod
+          printf '%s\n' 'package main' '' 'func main() {}' > fixture/cmd/orders/main.go
+          printf '%s\n' 'package repository' '' 'type Order struct { ID string }' > fixture/internal/repository/orders.go
+          git -C fixture add -A
+          git -C fixture commit -m "initial fixture"
 
       - name: Run the Action-first bootstrap
         uses: globulario/sensei-action/bootstrap@agent/action-first-bootstrap

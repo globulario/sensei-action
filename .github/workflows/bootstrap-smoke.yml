@@ -27,7 +27,6 @@ jobs:
       SENSEI_MODEL: ${{ inputs.model || 'openai/gpt-4.1' }}
       PROOF_ARTIFACT: sensei-bootstrap-live-proof-${{ github.run_id }}
       PROOF_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      PROOF_STATE_DIR: ${{ runner.temp }}/sensei-ai-bootstrap
     steps:
       - name: Check out the trusted revision
         uses: actions/checkout@v4
@@ -163,9 +162,10 @@ jobs:
             const path = require('path');
             const successMarker = '<!-- sensei-bootstrap-live-proof -->';
             const failureMarker = '<!-- sensei-bootstrap-live-proof-failure -->';
+            const stateDir = path.join(process.env.RUNNER_TEMP, 'sensei-ai-bootstrap');
             let result = null;
             for (const name of ['attempt-2.result.json', 'attempt-1.result.json']) {
-              const candidate = path.join(process.env.PROOF_STATE_DIR, name);
+              const candidate = path.join(stateDir, name);
               if (fs.existsSync(candidate)) {
                 result = JSON.parse(fs.readFileSync(candidate, 'utf8'));
                 break;

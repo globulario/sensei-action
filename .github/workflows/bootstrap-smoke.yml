@@ -27,6 +27,7 @@ jobs:
       SENSEI_MODEL: ${{ inputs.model || 'openai/gpt-4.1' }}
       PROOF_ARTIFACT: sensei-bootstrap-live-proof-${{ github.run_id }}
       PROOF_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      PROOF_STATE_DIR: ${{ runner.temp }}/sensei-ai-bootstrap
     steps:
       - name: Check out the trusted revision
         uses: actions/checkout@v4
@@ -91,16 +92,19 @@ jobs:
             "$receipt"
 
       - name: Preserve live-proof evidence
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.PROOF_ARTIFACT }}
-          if-no-files-found: error
+          if-no-files-found: warn
           path: |
             fixture/.sensei/ai-bootstrap-receipt.json
             fixture/.sensei/ai-bootstrap-proposal.json
             fixture/docs/awareness/BOOTSTRAP_QUESTIONS.md
             fixture/docs/awareness/invariants.yaml
             fixture/docs/awareness/failure_modes.yaml
+            ${{ runner.temp }}/sensei-bootstrap-deterministic.txt
+            ${{ runner.temp }}/sensei-ai-bootstrap/**
 
       - name: Publish successful live proof
         uses: actions/github-script@v7
@@ -110,10 +114,11 @@ jobs:
           script: |
             const fs = require('fs');
             const receipt = JSON.parse(fs.readFileSync(process.env.RECEIPT_PATH, 'utf8'));
-            const marker = '<!-- sensei-bootstrap-live-proof -->';
+            const successMarker = '<!-- sensei-bootstrap-live-proof -->';
+            const failureMarker = '<!-- sensei-bootstrap-live-proof-failure -->';
             const runUrl = process.env.PROOF_RUN_URL;
             const artifact = process.env.PROOF_ARTIFACT;
-            const body = `${marker}
+            const body = `${successMarker}
             ## ✅ Action-first bootstrap live proof
 
             The trusted GitHub-hosted runner completed the full bootstrap path.
@@ -130,7 +135,7 @@ jobs:
             Model-authored claims remain \`review_only\`; this proof does not promote them to architectural authority.`;
             const params = { owner: context.repo.owner, repo: context.repo.repo, issue_number: 2 };
             const { data: comments } = await github.rest.issues.listComments({ ...params, per_page: 100 });
-            const previous = comments.find(comment => comment.body && comment.body.includes(marker));
+            const previous = comments.find(comment => comment.body && comment.body.includes(successMarker));
             if (previous) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
@@ -141,26 +146,60 @@ jobs:
             } else {
               await github.rest.issues.createComment({ ...params, body });
             }
+            for (const stale of comments.filter(comment => comment.body && comment.body.includes(failureMarker))) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: stale.id
+              });
+            }
 
       - name: Publish failed live-proof boundary
         if: ${{ failure() }}
         uses: actions/github-script@v7
         with:
           script: |
-            const marker = '<!-- sensei-bootstrap-live-proof-failure -->';
-            const body = `${marker}
+            const fs = require('fs');
+            const path = require('path');
+            const successMarker = '<!-- sensei-bootstrap-live-proof -->';
+            const failureMarker = '<!-- sensei-bootstrap-live-proof-failure -->';
+            let result = null;
+            for (const name of ['attempt-2.result.json', 'attempt-1.result.json']) {
+              const candidate = path.join(process.env.PROOF_STATE_DIR, name);
+              if (fs.existsSync(candidate)) {
+                result = JSON.parse(fs.readFileSync(candidate, 'utf8'));
+                break;
+              }
+            }
+            const validation = result && result.validation_output
+              ? String(result.validation_output).slice(-3500).replaceAll('```', '` ` `')
+              : 'No bounded attempt result was produced; the run stopped before proposal validation.';
+            const attempt = result ? result.attempt : 'none';
+            const changed = result && Array.isArray(result.changed_files) && result.changed_files.length
+              ? result.changed_files.join(', ')
+              : 'none';
+            const body = `${failureMarker}
             ## ❌ Action-first bootstrap live proof stopped
 
-            The trusted smoke did not reach a valid governed receipt.
+            The personal Models token and tiny GPT-4.1 preflight succeeded, but the full bootstrap did not reach a valid governed receipt.
 
             - **source SHA:** \`${context.sha}\`
             - **model:** \`${process.env.SENSEI_MODEL}\`
+            - **latest bounded attempt:** \`${attempt}\`
+            - **candidate files written before rejection:** \`${changed}\`
+            - **artifact:** \`${process.env.PROOF_ARTIFACT}\`
             - **workflow run:** ${process.env.PROOF_RUN_URL}
 
-            Inspect the run to identify the exact stopped boundary. No result should be treated as certified until the success receipt replaces this notice.`;
+            **Sensei validation boundary**
+
+            \`\`\`text
+            ${validation}
+            \`\`\`
+
+            No result should be treated as certified until the success receipt replaces this notice.`;
             const params = { owner: context.repo.owner, repo: context.repo.repo, issue_number: 2 };
             const { data: comments } = await github.rest.issues.listComments({ ...params, per_page: 100 });
-            const previous = comments.find(comment => comment.body && comment.body.includes(marker));
+            const previous = comments.find(comment => comment.body && comment.body.includes(failureMarker));
             if (previous) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
@@ -170,4 +209,11 @@ jobs:
               });
             } else {
               await github.rest.issues.createComment({ ...params, body });
+            }
+            for (const stale of comments.filter(comment => comment.body && comment.body.includes(successMarker))) {
+              await github.rest.issues.deleteComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: stale.id
+              });
             }

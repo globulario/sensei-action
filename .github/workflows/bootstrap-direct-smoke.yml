@@ -1,0 +1,106 @@
+name: Bootstrap direct model smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/bootstrap-direct-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  models: read
+
+jobs:
+  direct-bootstrap:
+    runs-on: ubuntu-latest
+    env:
+      SENSEI_MODEL: openai/gpt-4.1
+      PROOF_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Check out trusted main
+        uses: actions/checkout@v4
+
+      - name: Require personal Models token
+        shell: bash
+        env:
+          MODELS_TOKEN: ${{ secrets.SENSEI_MODELS_TOKEN }}
+        run: test -n "$MODELS_TOKEN"
+
+      - name: Create isolated fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init -b main fixture >/dev/null
+          git -C fixture config user.name "Sensei Smoke"
+          git -C fixture config user.email "sensei-smoke@users.noreply.github.com"
+          mkdir -p fixture/cmd/orders fixture/internal/repository
+          printf '%s\n' '# Orders service' '' 'The HTTP API accepts orders and persists them through the repository package.' 'Business handlers must not write directly to the database adapter.' > fixture/README.md
+          printf '%s\n' 'module example.com/orders' '' 'go 1.25' > fixture/go.mod
+          printf '%s\n' 'package main' '' 'func main() {}' > fixture/cmd/orders/main.go
+          printf '%s\n' 'package repository' '' 'type Order struct { ID string }' > fixture/internal/repository/orders.go
+          git -C fixture add -A
+          git -C fixture commit -m "initial fixture" >/dev/null
+
+      - name: Run direct Action-first bootstrap
+        id: bootstrap
+        continue-on-error: true
+        uses: ./bootstrap
+        with:
+          repository-root: fixture
+          base-branch: main
+          dry-run: 'true'
+          model: ${{ env.SENSEI_MODEL }}
+          models-token: ${{ secrets.SENSEI_MODELS_TOKEN }}
+          sensei-ref: v1.1.0
+          max-context-bytes: '60000'
+
+      - name: Preserve direct-smoke evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sensei-bootstrap-direct-smoke-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            fixture/.sensei/**
+            fixture/docs/awareness/**
+            ${{ runner.temp }}/sensei-bootstrap-deterministic.txt
+            ${{ runner.temp }}/sensei-ai-bootstrap/**
+
+      - name: Publish direct-smoke boundary
+        if: ${{ always() }}
+        uses: actions/github-script@v7
+        env:
+          BOOTSTRAP_OUTCOME: ${{ steps.bootstrap.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- sensei-bootstrap-direct-smoke -->';
+            const receiptPath = 'fixture/.sensei/ai-bootstrap-receipt.json';
+            const hasReceipt = fs.existsSync(receiptPath);
+            const receipt = hasReceipt ? JSON.parse(fs.readFileSync(receiptPath, 'utf8')) : null;
+            const body = `${marker}
+            ## ${hasReceipt ? '✅' : '❌'} Direct GPT-4.1 bootstrap smoke
+
+            - **source SHA:** \`${context.sha}\`
+            - **model:** \`${process.env.SENSEI_MODEL}\`
+            - **composite outcome:** \`${process.env.BOOTSTRAP_OUTCOME}\`
+            - **governed receipt:** \`${hasReceipt ? 'present' : 'absent'}\`
+            - **accepted attempt:** \`${receipt ? receipt.accepted_attempt : 'none'}\`
+            - **workflow run:** ${process.env.PROOF_RUN_URL}
+
+            This run makes no separate model preflight request. Its first inference request is the real bounded architectural proposal.`;
+            const params = { owner: context.repo.owner, repo: context.repo.repo, issue_number: 2 };
+            const { data: comments } = await github.rest.issues.listComments({ ...params, per_page: 100 });
+            const previous = comments.find(comment => comment.body && comment.body.includes(marker));
+            if (previous) {
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: previous.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...params, body });
+            }
+
+      - name: Enforce governed success
+        if: ${{ steps.bootstrap.outcome != 'success' }}
+        shell: bash
+        run: exit 1

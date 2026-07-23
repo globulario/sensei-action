@@ -1,0 +1,30 @@
+name: Bootstrap live smoke
+
+on:
+  pull_request:
+    paths:
+      - "bootstrap/**"
+      - "examples/sensei-bootstrap.yml"
+      - ".github/workflows/bootstrap-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  models: read
+
+jobs:
+  bootstrap-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out trusted test revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run the Action-first bootstrap
+        uses: ./bootstrap
+        with:
+          base-branch: main
+          dry-run: 'true'
+          model: openai/gpt-4o
+          sensei-ref: v1.1.0

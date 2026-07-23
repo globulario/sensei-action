@@ -72,6 +72,18 @@ The review action:
 
 ## AI-assisted bootstrap
 
+### Enable GitHub Models first
+
+For an organization-owned repository, an organization owner must enable GitHub
+Models under **Organization Settings → Models → Development**. A repository
+administrator must then enable it under **Repository Settings → Models**. The
+workflow permission `models: read` grants the job access only after both feature
+switches allow it.
+
+A disabled organization or repository currently appears in Actions as an
+`actions/ai-inference` HTTP `403` with no response body. No Sensei code or model
+prompt has executed when that preflight fails.
+
 Copy [`examples/sensei-bootstrap.yml`](examples/sensei-bootstrap.yml) into the
 target repository as `.github/workflows/sensei-bootstrap.yml`. Commit it to the
 default branch, open the **Actions** tab, choose **Bootstrap Sensei architectural
@@ -86,8 +98,8 @@ permissions:
   models: read
 ```
 
-GitHub Models runs with the workflow's temporary `GITHUB_TOKEN`; no OpenAI or
-Anthropic secret is required.
+Once Models is enabled, GitHub Models runs with the workflow's temporary
+`GITHUB_TOKEN`; no OpenAI or Anthropic secret is required.
 
 ### Bootstrap execution contract
 
@@ -134,6 +146,13 @@ All changes land in a draft PR rather than on the default branch.
 | `max-context-bytes` | `180000` | Hard cap on repository context sent to the model. |
 | `dry-run` | `false` | Validate without pushing a branch or creating a PR. |
 
+### Maintainer live proof
+
+After enabling GitHub Models for the organization and this repository, run
+**Bootstrap live smoke** from the Actions tab. It first performs a tiny model
+preflight, then runs the complete bootstrap Action in dry-run mode against an
+isolated Go fixture repository.
+
 ## Trust model
 
 - Review runs may execute automatically because they use read-only repository
@@ -144,8 +163,8 @@ All changes land in a draft PR rather than on the default branch.
   draft PR.
 - Model output is untrusted input until parsed, path-restricted, and validated by
   Sensei.
-- The exact model response, context, source revision, attempt, and written-file
-  digests are represented in bootstrap receipts.
+- The model response digest, bounded context digest, source revision, accepted
+  attempt, and written-file digests are represented in bootstrap receipts.
 
 ## Local development
 

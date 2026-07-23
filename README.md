@@ -18,8 +18,8 @@ This repository provides two bounded workflows:
    GitHub Models model for a small evidence-grounded candidate corpus, validates
    it with Sensei, and opens a draft PR for human review.
 
-No permanent webhook server, VPS, external database, or separate model API key is
-required for this first product version.
+No permanent webhook server, VPS, external database, or provider-specific model
+API key is required for this first product version.
 
 ## Pull-request review
 
@@ -72,17 +72,27 @@ The review action:
 
 ## AI-assisted bootstrap
 
-### Enable GitHub Models first
+### Configure GitHub Models inference
 
-For an organization-owned repository, an organization owner must enable GitHub
-Models under **Organization Settings → Models → Development**. A repository
-administrator must then enable it under **Repository Settings → Models**. The
-workflow permission `models: read` grants the job access only after both feature
-switches allow it.
+For a standalone organization whose repository `GITHUB_TOKEN` receives an HTTP
+`403` from GitHub Models, create a fine-grained personal access token under the
+maintainer's personal account with only **Account permissions → Models:
+Read-only**. Store it as the repository Actions secret:
 
-A disabled organization or repository currently appears in Actions as an
-`actions/ai-inference` HTTP `403` with no response body. No Sensei code or model
-prompt has executed when that preflight fails.
+```text
+SENSEI_MODELS_TOKEN
+```
+
+Pass that secret to the reusable action through `models-token`. The personal
+token is used only by `actions/ai-inference`; repository branch and pull-request
+operations continue to use the workflow's temporary `GITHUB_TOKEN`.
+
+Organizations with native GitHub Models enabled may omit `models-token`. The
+action then falls back to `GITHUB_TOKEN`, provided the workflow grants
+`models: read` and the organization/repository Models switches allow access.
+
+A Models authorization failure occurs before Sensei sends the architectural
+prompt. It therefore cannot partially mutate the repository.
 
 ### Allow the bootstrap workflow to create its draft PR
 
@@ -109,10 +119,11 @@ permissions:
   contents: write
   pull-requests: write
   models: read
-```
 
-Once Models is enabled, GitHub Models runs with the workflow's temporary
-`GITHUB_TOKEN`; no OpenAI or Anthropic secret is required.
+# In the bootstrap step:
+with:
+  models-token: ${{ secrets.SENSEI_MODELS_TOKEN }}
+```
 
 ### Bootstrap execution contract
 
@@ -156,7 +167,8 @@ branch.
 | Input | Default | Description |
 |---|---|---|
 | `base-branch` | required | Base branch for the draft PR. |
-| `model` | `openai/gpt-4o` | GitHub Models model identifier. |
+| `model` | `openai/gpt-4.1` | GitHub Models model identifier. |
+| `models-token` | workflow `GITHUB_TOKEN` | Optional token with Models read permission. |
 | `sensei-ref` | `v1.1.0` | Pinned Sensei version. |
 | `repository-root` | `.` | Checkout root. |
 | `branch-prefix` | `sensei/bootstrap` | Prefix for generated branches. |
@@ -166,10 +178,16 @@ branch.
 
 ### Maintainer live proof
 
-After enabling GitHub Models for the organization and this repository, run
-**Bootstrap live smoke** from the Actions tab. It first performs a tiny model
-preflight, then runs the complete bootstrap Action in dry-run mode against an
-isolated Go fixture repository.
+The repository's **Bootstrap live smoke** workflow runs on relevant trusted
+changes reaching `main`, and may also be started manually. It:
+
+1. verifies a tiny GitHub Models request with `SENSEI_MODELS_TOKEN`
+2. bootstraps an isolated Go fixture with the complete reusable action
+3. checks the governed receipt and cryptographic digests
+4. uploads the receipt, proposal, questions, invariants, and failure modes as a
+   live-proof artifact
+
+The secret-bearing smoke does not run for pull requests.
 
 ## Trust model
 
@@ -177,6 +195,7 @@ isolated Go fixture repository.
   access aside from optional result publication.
 - Bootstrap runs are manual `workflow_dispatch` operations from the trusted
   default branch.
+- The secret-backed live smoke runs only on trusted `main` or manual dispatch.
 - Bootstrap write permissions are used only to push a new branch and open a
   draft PR.
 - Model output is untrusted input until normalized, parsed, path-restricted, and

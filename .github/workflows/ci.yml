@@ -22,4 +22,20 @@ jobs:
         run: bash -n bootstrap/scripts/install-sensei.sh
       - name: Parse action YAML
         run: |
-          ruby -e "require 'yaml'; YAML.load_file('action.yml'); YAML.load_file('bootstrap/action.yml'); YAML.load_file('examples/sensei-bootstrap.yml')"
+          ruby -e "require 'yaml'; YAML.load_file('action.yml'); YAML.load_file('bootstrap/action.yml'); YAML.load_file('examples/sensei-bootstrap.yml'); YAML.load_file('.github/workflows/bootstrap-smoke.yml')"
+      - name: Verify Models token boundary
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          action = Path('bootstrap/action.yml').read_text()
+          example = Path('examples/sensei-bootstrap.yml').read_text()
+          smoke = Path('.github/workflows/bootstrap-smoke.yml').read_text()
+          expression_open = '$' + '{{'
+
+          assert 'default: openai/gpt-4.1' in action
+          assert f'token: {expression_open} inputs.models-token || github.token }}' + '}' in action
+          assert f'models-token: {expression_open} secrets.SENSEI_MODELS_TOKEN }}' + '}' in example
+          assert f'token: {expression_open} secrets.SENSEI_MODELS_TOKEN }}' + '}' in smoke
+          assert 'pull_request:' not in smoke
+          PY

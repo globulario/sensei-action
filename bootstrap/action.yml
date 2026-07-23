@@ -10,7 +10,11 @@ inputs:
   model:
     description: GitHub Models model identifier.
     required: false
-    default: openai/gpt-4o
+    default: openai/gpt-4.1
+  models-token:
+    description: Optional token with Models read permission; falls back to the workflow GITHUB_TOKEN when omitted.
+    required: false
+    default: ''
   repository-root:
     description: Repository checkout root.
     required: false
@@ -84,6 +88,7 @@ runs:
         prompt-file: ${{ runner.temp }}/sensei-ai-bootstrap/attempt-1.prompt.txt
         model: ${{ inputs.model }}
         max-tokens: '7000'
+        token: ${{ inputs.models-token || github.token }}
 
     - name: Validate first proposal
       id: attempt1
@@ -111,6 +116,7 @@ runs:
         prompt-file: ${{ runner.temp }}/sensei-ai-bootstrap/attempt-2.prompt.txt
         model: ${{ inputs.model }}
         max-tokens: '7000'
+        token: ${{ inputs.models-token || github.token }}
 
     - name: Validate repaired proposal
       id: attempt2

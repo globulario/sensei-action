@@ -1,0 +1,39 @@
+name: Bootstrap live smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: GitHub Models model used for the live proof
+        required: false
+        default: openai/gpt-4o
+        type: string
+
+permissions:
+  contents: read
+  models: read
+
+jobs:
+  bootstrap-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify GitHub Models access
+        uses: actions/ai-inference@v1
+        with:
+          prompt: 'Return exactly: {"ok":true}'
+          model: ${{ inputs.model }}
+          max-tokens: '20'
+
+      - name: Create a trusted fixture repository
+        shell: bash
+        run: |
+          set -euo pipefail; git init -b main fixture >/dev/null; git -C fixture config user.name "Sensei Smoke"; git -C fixture config user.email "sensei-smoke@users.noreply.github.com"; mkdir -p fixture/cmd/orders fixture/internal/repository; printf '%s\n' '# Orders service' '' 'The HTTP API accepts orders and persists them through the repository package.' 'Business handlers must not write directly to the database adapter.' > fixture/README.md; printf '%s\n' 'module example.com/orders' '' 'go 1.25' > fixture/go.mod; printf '%s\n' 'package main' '' 'func main() {}' > fixture/cmd/orders/main.go; printf '%s\n' 'package repository' '' 'type Order struct { ID string }' > fixture/internal/repository/orders.go; git -C fixture add -A; git -C fixture commit -m "initial fixture" >/dev/null
+
+      - name: Run the Action-first bootstrap
+        uses: globulario/sensei-action/bootstrap@agent/action-first-bootstrap
+        with:
+          repository-root: fixture
+          base-branch: main
+          dry-run: 'true'
+          model: ${{ inputs.model }}
+          sensei-ref: v1.1.0

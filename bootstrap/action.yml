@@ -61,7 +61,7 @@ runs:
     - name: Install Sensei
       shell: bash
       run: |
-        "$GITHUB_ACTION_PATH/scripts/install-sensei.sh" "${{ inputs.sensei-ref }}"
+        bash "$GITHUB_ACTION_PATH/scripts/install-sensei.sh" "${{ inputs.sensei-ref }}"
 
     - name: Run deterministic bootstrap
       shell: bash

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ref="${1:-v1.1.0}"
+ref="${1:-v1.6.0}"
 bin_dir="${RUNNER_TEMP:-/tmp}/sensei-bin"
 mkdir -p "$bin_dir"
 

@@ -36,4 +36,4 @@ jobs:
           model: ${{ inputs.model }}
           models-token: ${{ secrets.SENSEI_MODELS_TOKEN }}
           dry-run: ${{ inputs.dry_run }}
-          sensei-ref: v1.1.0
+          sensei-ref: v1.6.0

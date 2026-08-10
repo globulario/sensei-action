@@ -46,7 +46,7 @@ jobs:
       - uses: globulario/sensei-action@v1
         with:
           mode: advisory
-          sensei-ref: v1.1.0
+          sensei-ref: v1.6.0
 ```
 
 The review action:
@@ -67,7 +67,7 @@ The review action:
 | `diff` | auto | Explicit git diff range. |
 | `domain` | none | Optional domain/repository scope. |
 | `sarif` | `true` | Upload findings to GitHub code scanning when permitted. |
-| `sensei-ref` | `v1.1.0` | Pinned Sensei release, branch, or commit. |
+| `sensei-ref` | `v1.6.0` | Pinned Sensei release, branch, or commit. |
 | `go-version` | `1.25` | Go version for the fallback source build. |
 
 ## AI-assisted bootstrap
@@ -169,7 +169,7 @@ branch.
 | `base-branch` | required | Base branch for the draft PR. |
 | `model` | `openai/gpt-4.1` | GitHub Models model identifier. |
 | `models-token` | workflow `GITHUB_TOKEN` | Optional token with Models read permission. |
-| `sensei-ref` | `v1.1.0` | Pinned Sensei version. |
+| `sensei-ref` | `v1.6.0` | Pinned Sensei version. |
 | `repository-root` | `.` | Checkout root. |
 | `branch-prefix` | `sensei/bootstrap` | Prefix for generated branches. |
 | `pr-title` | `chore: bootstrap Sensei architectural memory` | Draft PR title. |

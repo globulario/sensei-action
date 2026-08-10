@@ -6,7 +6,7 @@ inputs:
   sensei-ref:
     description: Git ref of globulario/sensei to install.
     required: false
-    default: v1.1.0
+    default: v1.6.0
   model:
     description: GitHub Models model identifier.
     required: false

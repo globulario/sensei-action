@@ -53,7 +53,7 @@ jobs:
           dry-run: 'true'
           model: ${{ env.SENSEI_MODEL }}
           models-token: ${{ secrets.SENSEI_MODELS_TOKEN }}
-          sensei-ref: v1.1.0
+          sensei-ref: v1.6.0
           max-context-bytes: '20000'
 
       - name: Preserve direct-smoke evidence

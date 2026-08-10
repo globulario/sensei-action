@@ -72,7 +72,7 @@ jobs:
           dry-run: 'true'
           model: ${{ env.SENSEI_MODEL }}
           models-token: ${{ secrets.SENSEI_MODELS_TOKEN }}
-          sensei-ref: v1.1.0
+          sensei-ref: v1.6.0
 
       - name: Verify the bootstrap receipt
         shell: bash

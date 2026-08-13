@@ -19,7 +19,7 @@ inputs:
     required: false
     default: ''
   domain:
-    description: "Domain/repo scope, e.g. github.com/you/yourrepo. Only needed if your graph hosts more than one domain."
+    description: "Domain/repo scope, e.g. github.com/you/yourrepo. Defaults to this repository, derived from GITHUB_SERVER_URL and GITHUB_REPOSITORY."
     required: false
     default: ''
   sarif:
@@ -110,9 +110,36 @@ runs:
           if [ "$i" = 60 ]; then echo "::error::server did not start"; cat "$RUNNER_TEMP/sensei-serve.log"; exit 1; fi
         done
 
+    - name: Resolve the graph scope
+      shell: bash
+      env:
+        INPUT_DOMAIN: ${{ inputs.domain }}
+      run: |
+        set -euo pipefail
+        # The action owns exactly one repository's slice of the store. It never
+        # has the authority to replace the whole graph, so `--all` is not a
+        # fallback here — an unresolvable scope is an error.
+        DOMAIN="$(printf '%s' "${INPUT_DOMAIN:-}" | tr -d '[:space:]')"
+        if [ -z "$DOMAIN" ]; then
+          HOST="$(printf '%s' "${GITHUB_SERVER_URL:-}" | sed -e 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##' -e 's#/.*$##' | tr 'A-Z' 'a-z')"
+          if [ -n "$HOST" ] && [ -n "${GITHUB_REPOSITORY:-}" ]; then
+            DOMAIN="$HOST/$GITHUB_REPOSITORY"
+          fi
+        fi
+        if [ -z "$DOMAIN" ]; then
+          echo "::error::cannot resolve the graph scope: set the 'domain' input (e.g. github.com/you/yourrepo)."
+          exit 1
+        fi
+        echo "graph scope: $DOMAIN"
+        echo "SENSEI_DOMAIN=$DOMAIN" >> "$GITHUB_ENV"
+
     - name: Compile the awareness graph
       shell: bash
-      run: sensei build --input "${{ inputs.awareness-dir }}" --store-url "http://localhost:7878/store?default"
+      run: |
+        set -euo pipefail
+        sensei build --input "${{ inputs.awareness-dir }}" \
+          --repo "$SENSEI_DOMAIN" \
+          --store-url "http://localhost:7878/store?default"
 
     - name: Review the diff
       id: review
@@ -129,7 +156,8 @@ runs:
           fi
         fi
         MODE="${{ inputs.mode }}"
-        DOMAIN=""; [ -n "${{ inputs.domain }}" ] && DOMAIN="--domain ${{ inputs.domain }}"
+        # Same scope the graph was built under — resolved once, above.
+        DOMAIN="--domain $SENSEI_DOMAIN"
         SARIF_FILE="$RUNNER_TEMP/sensei.sarif"
         SARIF=""; [ "${{ inputs.sarif }}" = "true" ] && SARIF="--sarif $SARIF_FILE"
         echo "reviewing diff: $RANGE (mode=$MODE)"

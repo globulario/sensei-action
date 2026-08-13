@@ -102,7 +102,9 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # `sensei serve` runs Oxigraph (:7878) as a child and the gRPC server (:10120).
+        # `sensei serve` runs a fresh, action-private Oxigraph (:7878) as a child
+        # and the gRPC server (:10120). This store is disposable and contains no
+        # pre-existing repository domains.
         nohup sensei serve --no-seed --allow-stale-seed > "$RUNNER_TEMP/sensei-serve.log" 2>&1 &
         for i in $(seq 1 60); do
           if (exec 3<>/dev/tcp/localhost/10120) 2>/dev/null; then exec 3>&-; break; fi
@@ -110,15 +112,12 @@ runs:
           if [ "$i" = 60 ]; then echo "::error::server did not start"; cat "$RUNNER_TEMP/sensei-serve.log"; exit 1; fi
         done
 
-    - name: Resolve the graph scope
+    - name: Resolve the review domain
       shell: bash
       env:
         INPUT_DOMAIN: ${{ inputs.domain }}
       run: |
         set -euo pipefail
-        # The action owns exactly one repository's slice of the store. It never
-        # has the authority to replace the whole graph, so `--all` is not a
-        # fallback here — an unresolvable scope is an error.
         DOMAIN="$(printf '%s' "${INPUT_DOMAIN:-}" | tr -d '[:space:]')"
         if [ -z "$DOMAIN" ]; then
           HOST="$(printf '%s' "${GITHUB_SERVER_URL:-}" | sed -e 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##' -e 's#/.*$##' | tr 'A-Z' 'a-z')"
@@ -127,18 +126,22 @@ runs:
           fi
         fi
         if [ -z "$DOMAIN" ]; then
-          echo "::error::cannot resolve the graph scope: set the 'domain' input (e.g. github.com/you/yourrepo)."
+          echo "::error::cannot resolve the review domain: set the 'domain' input (e.g. github.com/you/yourrepo)."
           exit 1
         fi
-        echo "graph scope: $DOMAIN"
+        echo "review domain: $DOMAIN"
         echo "SENSEI_DOMAIN=$DOMAIN" >> "$GITHUB_ENV"
 
     - name: Compile the awareness graph
       shell: bash
       run: |
         set -euo pipefail
+        # This action created the store above with --no-seed, owns its complete
+        # lifetime, and destroys it with the job. `--all` is therefore the exact
+        # cold-start ownership declaration, not an admission bypass for a shared
+        # or persistent store.
         sensei build --input "${{ inputs.awareness-dir }}" \
-          --repo "$SENSEI_DOMAIN" \
+          --all \
           --store-url "http://localhost:7878/store?default"
 
     - name: Review the diff
@@ -156,7 +159,6 @@ runs:
           fi
         fi
         MODE="${{ inputs.mode }}"
-        # Same scope the graph was built under — resolved once, above.
         DOMAIN="--domain $SENSEI_DOMAIN"
         SARIF_FILE="$RUNNER_TEMP/sensei.sarif"
         SARIF=""; [ "${{ inputs.sarif }}" = "true" ] && SARIF="--sarif $SARIF_FILE"

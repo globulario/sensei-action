@@ -42,6 +42,11 @@ runs:
       uses: actions/setup-go@v5
       with:
         go-version: ${{ inputs.go-version }}
+        # The caller owns its repository/module cache. This setup exists only so
+        # the source-build fallback has a toolchain when no prebuilt Sensei bundle
+        # exists. Restoring the caller's Go cache a second time can collide with
+        # files already restored by an earlier setup-go step in the same job.
+        cache: false
 
     - name: Install Sensei (prebuilt tarball, or build)
       shell: bash
